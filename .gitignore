@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Local Dev/Production Build Artifacts
+frontend/dist/
+frontend/build/
+
+# Local/Private Configuration & Secrets
+backend/.env
+.env
+.env.local
+
+# Search Engine Telemetry & Cache
+# We keep documents.csv and embeddings.json so the deployed server runs instantly,
+# but we ignore local user search logs to keep telemetry private.
+backend/data/analytics.csv
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# IDE / Agent specific folders
+.gemini/
+.system_generated/
+*.log

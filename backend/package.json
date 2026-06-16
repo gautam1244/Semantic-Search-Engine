@@ -1,0 +1,18 @@
+{
+  "name": "semantic-search-backend",
+  "version": "1.0.0",
+  "description": "Express backend for AI semantic search engine",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@xenova/transformers": "^2.17.2",
+    "cors": "^2.8.5",
+    "csv-parser": "^3.0.0",
+    "dotenv": "^17.4.2",
+    "express": "^4.19.2"
+  }
+}

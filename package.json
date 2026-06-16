@@ -1,0 +1,17 @@
+{
+  "name": "semantic-search-engine-root",
+  "version": "1.0.0",
+  "description": "Root orchestrator for AI semantic search engine",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install && npm install --prefix backend && npm install --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "start": "node backend/server.js",
+    "dev:backend": "npm start --prefix backend",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "dev": "npx concurrently -n \"backend,frontend\" -c \"blue,green\" \"npm run dev:backend\" \"npm run dev:frontend\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
