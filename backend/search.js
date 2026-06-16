@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import csv from 'csv-parser';
 import { pipeline } from '@xenova/transformers';
+import { Pinecone } from '@pinecone-database/pinecone';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,6 +11,30 @@ const DATA_DIR = path.resolve(__dirname, './data');
 const DOCUMENTS_CSV = path.join(DATA_DIR, 'documents.csv');
 const EMBEDDINGS_JSON = path.join(DATA_DIR, 'embeddings.json');
 const ANALYTICS_CSV = path.join(DATA_DIR, 'analytics.csv');
+
+// Initialize Pinecone client conditionally
+let pineconeClient = null;
+let pineconeIndex = null;
+
+function getPineconeIndex() {
+  const apiKey = process.env.PINECONE_API_KEY;
+  const indexName = process.env.PINECONE_INDEX_NAME;
+  
+  if (!apiKey || apiKey.trim() === '' || apiKey === 'your_pinecone_api_key_here') {
+    return null;
+  }
+  
+  if (!pineconeIndex) {
+    try {
+      pineconeClient = new Pinecone({ apiKey });
+      pineconeIndex = pineconeClient.index(indexName || 'semantic-search');
+    } catch (err) {
+      console.error('Failed to initialize Pinecone Client:', err);
+      return null;
+    }
+  }
+  return pineconeIndex;
+}
 
 // Load documents from CSV
 export function loadDocuments() {
@@ -75,6 +100,47 @@ function cosineSimilarity(vecA, vecB) {
 
 // Load precomputed embeddings or rebuild if missing
 export async function getEmbeddings(docs, forceRebuild = false) {
+  // 1. If Pinecone is configured, rebuild the index on the cloud database
+  const pIndex = getPineconeIndex();
+  
+  if (pIndex) {
+    try {
+      console.log(`Rebuilding Pinecone vector index. Generating embeddings for ${docs.length} documents...`);
+      const model = await getModel();
+      const records = [];
+
+      for (let i = 0; i < docs.length; i++) {
+        const doc = docs[i];
+        const text = doc.title + '. ' + doc.content;
+        const embedding = await computeEmbedding(text, model);
+
+        records.push({
+          id: `doc-${doc.id}`,
+          values: embedding,
+          metadata: {
+            id: doc.id,
+            title: doc.title,
+            content: doc.content,
+            category: doc.category || 'Other',
+            url: doc.url || '',
+            date: doc.date || '2025-12-01',
+            popularity: doc.popularity || 0
+          }
+        });
+
+        if ((i + 1) % 50 === 0 || i === docs.length - 1) {
+          console.log(`Progress: ${i + 1}/${docs.length} embeddings generated. Upserting batch to Pinecone...`);
+          const batch = records.splice(0, records.length);
+          await pIndex.upsert(batch);
+        }
+      }
+      console.log('Pinecone database successfully indexed.');
+    } catch (err) {
+      console.error('Failed to index documents into Pinecone:', err);
+    }
+  }
+
+  // 2. Local JSON cache fallback logic
   if (!forceRebuild && fs.existsSync(EMBEDDINGS_JSON)) {
     try {
       const data = JSON.parse(fs.readFileSync(EMBEDDINGS_JSON, 'utf-8'));
@@ -86,7 +152,7 @@ export async function getEmbeddings(docs, forceRebuild = false) {
     }
   }
 
-  console.log(`Rebuilding index. Generating embeddings for ${docs.length} documents...`);
+  console.log(`Generating local embeddings backup cache for ${docs.length} documents...`);
   const model = await getModel();
   const embeddingsList = [];
   
@@ -97,13 +163,13 @@ export async function getEmbeddings(docs, forceRebuild = false) {
     embeddingsList.push({ id: doc.id, embedding });
 
     if ((i + 1) % 50 === 0) {
-      console.log(`Progress: ${i + 1}/${docs.length} embeddings generated...`);
+      console.log(`Progress: ${i + 1}/${docs.length} local embeddings generated...`);
     }
   }
 
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(EMBEDDINGS_JSON, JSON.stringify(embeddingsList), 'utf-8');
-  console.log('Embeddings cache successfully saved.');
+  console.log('Local embeddings backup cache successfully saved.');
   return embeddingsList;
 }
 
@@ -304,12 +370,6 @@ export async function search({
 
   const startTime = performance.now();
   const docs = await loadDocuments();
-  const docEmbeddings = await getEmbeddings(docs);
-  
-  const embMap = new Map();
-  for (const item of docEmbeddings) {
-    embMap.set(item.id, item.embedding);
-  }
 
   // 1. Run LLM-Based Query Understanding
   const interpretedQuery = llmQueryUnderstand(query);
@@ -340,30 +400,77 @@ export async function search({
     }
   });
 
-  // Compute raw Lexical (BM25) and Semantic (Vector) scores
-  let candidates = docs.map((doc, idx) => {
-    const docEmb = embMap.get(doc.id);
-    const semanticScore = docEmb ? cosineSimilarity(queryEmbedding, docEmb) : 0;
-    const bm25Score = bm25Searcher.score(expandedQuery, idx);
-    
-    return { 
-      id: doc.id,
-      title: doc.title,
-      content: doc.content,
-      category: doc.category,
-      url: doc.url,
-      date: doc.date,
-      popularity: doc.popularity,
-      vector_raw: semanticScore,
-      bm25_raw: bm25Score
-    };
-  });
+  let candidates = [];
+  const pIndex = getPineconeIndex();
 
-  // Apply category filter
-  if (category && category !== 'All') {
-    candidates = candidates.filter(
-      (doc) => doc.category.toLowerCase() === category.toLowerCase()
-    );
+  if (pIndex) {
+    try {
+      console.log('Querying Pinecone Vector Database...');
+      const queryResponse = await pIndex.query({
+        vector: queryEmbedding,
+        topK: 50,
+        includeMetadata: true
+      });
+
+      candidates = queryResponse.matches.map(match => {
+        const meta = match.metadata;
+        const docIdx = docs.findIndex(d => d.id === meta.id);
+        const bm25Score = docIdx >= 0 ? bm25Searcher.score(expandedQuery, docIdx) : 0;
+        return {
+          id: meta.id,
+          title: meta.title,
+          content: meta.content,
+          category: meta.category,
+          url: meta.url,
+          date: meta.date,
+          popularity: meta.popularity,
+          vector_raw: match.score,
+          bm25_raw: bm25Score
+        };
+      });
+
+      if (category && category !== 'All') {
+        candidates = candidates.filter(
+          (doc) => doc.category.toLowerCase() === category.toLowerCase()
+        );
+      }
+    } catch (err) {
+      console.error('Pinecone query failed, falling back to local search index:', err);
+      candidates = []; // reset to force fallback
+    }
+  }
+
+  // Fallback if Pinecone is not set or failed (yielding 0 candidates)
+  if (candidates.length === 0) {
+    const docEmbeddings = await getEmbeddings(docs);
+    const embMap = new Map();
+    for (const item of docEmbeddings) {
+      embMap.set(item.id, item.embedding);
+    }
+
+    candidates = docs.map((doc, idx) => {
+      const docEmb = embMap.get(doc.id);
+      const semanticScore = docEmb ? cosineSimilarity(queryEmbedding, docEmb) : 0;
+      const bm25Score = bm25Searcher.score(expandedQuery, idx);
+      
+      return { 
+        id: doc.id,
+        title: doc.title,
+        content: doc.content,
+        category: doc.category,
+        url: doc.url,
+        date: doc.date,
+        popularity: doc.popularity,
+        vector_raw: semanticScore,
+        bm25_raw: bm25Score
+      };
+    });
+
+    if (category && category !== 'All') {
+      candidates = candidates.filter(
+        (doc) => doc.category.toLowerCase() === category.toLowerCase()
+      );
+    }
   }
 
   if (candidates.length === 0) {
