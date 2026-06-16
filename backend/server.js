@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 
 dotenv.config();
 import { 
@@ -283,14 +284,24 @@ ${context}
   }
 });
 
-// Serve static assets from frontend
+// Serve static assets from frontend (only if build folder exists)
 const distPath = path.join(__dirname, '../frontend/dist');
-app.use(express.static(distPath));
-
-// Fallback to index.html for React Router / SPA routing
-app.get('*', (req, res) => {
-  res.sendFile(path.join(distPath, 'index.html'));
-});
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  // Fallback to index.html for React Router / SPA routing
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+} else {
+  // Graceful root response in standalone API deployment
+  app.get('/', (req, res) => {
+    res.json({
+      message: "Semantic Search Engine Node.js API",
+      status: "online",
+      backend: "Transformers.js (all-MiniLM-L6-v2) + Local Embeddings Cache"
+    });
+  });
+}
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on http://localhost:${PORT}`);
