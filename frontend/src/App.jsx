@@ -163,6 +163,7 @@ export default function App() {
     queries_by_day: [],
     latency_history: [],
     total_documents: 0,
+    vector_db: 'Checking...',
   })
   const [trendingTopics, setTrendingTopics] = useState([])
 
@@ -1026,13 +1027,15 @@ export default function App() {
               <span style={{ ...styles.kpiValue, color: 'var(--primary-color)' }}>
                 {analyticsStats.avg_latency.toFixed(1)} ms
               </span>
-              <span style={styles.kpiSubtitle}>FastAPI + FAISS routing speed</span>
+              <span style={styles.kpiSubtitle}>
+                {analyticsStats.vector_db === 'Pinecone' ? 'Render + Pinecone cloud speed' : 'Render + Local cache speed'}
+              </span>
             </div>
 
             <div style={styles.kpiCard}>
               <span style={styles.kpiTitle}>Embedding Pipeline</span>
-              <span style={{ ...styles.kpiValue, color: '#10b981', fontSize: 22 }}>
-                FAISS FlatIP
+              <span style={{ ...styles.kpiValue, color: '#10b981', fontSize: 20 }}>
+                {analyticsStats.vector_db === 'Pinecone' ? 'Pinecone Cloud DB' : 'Local JSON Cache'}
               </span>
               <span style={styles.kpiSubtitle}>all-MiniLM-L6-v2 model</span>
             </div>
@@ -1040,7 +1043,9 @@ export default function App() {
             <div style={styles.kpiCard}>
               <span style={styles.kpiTitle}>Database Corpus Size</span>
               <span style={styles.kpiValue}>{analyticsStats.total_documents || 0} Docs</span>
-              <span style={styles.kpiSubtitle}>Documents CSV file records</span>
+              <span style={styles.kpiSubtitle}>
+                {analyticsStats.vector_db === 'Pinecone' ? 'Pinecone indexed records' : 'Documents CSV file records'}
+              </span>
             </div>
           </div>
 

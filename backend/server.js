@@ -16,7 +16,8 @@ import {
   loadDocuments,
   getEmbeddings,
   getSearchSuggestions,
-  getTrendingTopics
+  getTrendingTopics,
+  getPineconeIndex
 } from './search.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -29,10 +30,13 @@ app.use(cors({ origin: '*' }));
 app.use(express.json());
 
 app.get('/api/health', (req, res) => {
+  const isPinecone = !!getPineconeIndex();
   res.json({
     message: "Semantic Search Engine Node.js API",
     status: "online",
-    backend: "Transformers.js (all-MiniLM-L6-v2) + Local Embeddings Cache"
+    backend: isPinecone 
+      ? "Transformers.js (all-MiniLM-L6-v2) + Pinecone Cloud DB" 
+      : "Transformers.js (all-MiniLM-L6-v2) + Local Embeddings Cache"
   });
 });
 
@@ -192,10 +196,13 @@ app.post('/rebuild-index', async (req, res) => {
   try {
     const docs = await loadDocuments();
     await getEmbeddings(docs, true);
+    const isPinecone = !!getPineconeIndex();
     res.json({
       message: "Index rebuilt successfully",
       total_docs: docs.length,
-      backend: "Transformers.js (all-MiniLM-L6-v2) + Local Embeddings Cache"
+      backend: isPinecone 
+        ? "Transformers.js (all-MiniLM-L6-v2) + Pinecone Cloud DB" 
+        : "Transformers.js (all-MiniLM-L6-v2) + Local Embeddings Cache"
     });
   } catch (error) {
     console.error(error);

@@ -16,7 +16,7 @@ const ANALYTICS_CSV = path.join(DATA_DIR, 'analytics.csv');
 let pineconeClient = null;
 let pineconeIndex = null;
 
-function getPineconeIndex() {
+export function getPineconeIndex() {
   const apiKey = process.env.PINECONE_API_KEY;
   const indexName = process.env.PINECONE_INDEX_NAME;
   
@@ -644,6 +644,9 @@ export async function getAnalyticsStats() {
       .slice(-15)
       .map((log) => ({ query: log.query, latency_ms: log.latency_ms }));
 
+    const activeIndex = getPineconeIndex();
+    const vector_db = activeIndex ? 'Pinecone' : 'Local JSON Cache';
+
     return {
       total_queries,
       avg_latency: parseFloat(avg_latency.toFixed(2)),
@@ -651,6 +654,7 @@ export async function getAnalyticsStats() {
       queries_by_day,
       latency_history,
       total_documents,
+      vector_db,
     };
   } catch (e) {
     return { error: e.message };
